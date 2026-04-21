@@ -298,11 +298,13 @@ body {
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .email-header {
   padding: 20px;
   border-bottom: 1px solid var(--border-glass);
   background: linear-gradient(90deg, rgba(139,92,246,0.1), transparent);
+  flex-shrink: 0;
 }
 .email-body {
   padding: 20px;
@@ -312,4 +314,6 @@ body {
   color: #e2e8f0;
   overflow-y: auto;
   white-space: pre-wrap;
+  flex: 1;
+  min-height: 60px;
 }

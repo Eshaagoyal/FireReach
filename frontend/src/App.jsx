@@ -36,6 +36,18 @@ const IconCheck = () => (
   </svg>
 );
 
+const IconEdit = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3" />
+  </svg>
+);
+
+const IconSend = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+  </svg>
+);
+
 // ── Log Parser ───────────────────────────────────────────────
 function getLogType(log) {
   const text = (log.log || log || '').toString().toLowerCase();
@@ -61,6 +73,11 @@ function App() {
   const [emailPreview, setEmailPreview] = useState(null);
   const [signals, setSignals] = useState([]);
   const [apiStatus, setApiStatus] = useState({ groq: false, tavily: false, gmail: false });
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedSubject, setEditedSubject] = useState('');
+  const [editedBody, setEditedBody] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
 
   const logsEndRef = useRef(null);
   useEffect(() => { logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [logs]);
@@ -73,15 +90,35 @@ function App() {
   }, []);
 
   const handleRun = useCallback(async () => {
-    if (!companyName.trim() || !icp.trim() || !recipient.trim()) return;
+    if (!companyName.trim() || !icp.trim() || !recipient.trim()) {
+      setLogs(prev => [...prev, { log: 'Please fill in all fields', type: 'error' }]);
+      return;
+    }
     setLogs([]); setEmailPreview(null); setSignals([]); setIsRunning(true);
+    setIsEditing(false);
+    setEmailSent(false);
+
+    console.log('Starting outreach with API_BASE_URL:', API_BASE_URL);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/run-outreach`, {
+      const url = `${API_BASE_URL}/api/run-outreach`;
+      console.log('Fetching from:', url);
+      
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ company_name: companyName, icp, recipient }),
       });
+
+      console.log('Response status:', res.status);
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('HTTP Error:', res.status, errorText);
+        setLogs(prev => [...prev, { log: `HTTP Error: ${res.status} - ${errorText}`, type: 'error' }]);
+        setIsRunning(false);
+        return;
+      }
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -101,19 +138,61 @@ function App() {
             if (jsonStr) {
               try {
                 const data = JSON.parse(jsonStr);
+                console.log('Received data:', data);
                 setLogs(prev => [...prev, data]);
                 if (data.signals) setSignals(data.signals);
-                if (data.result?.subject) setEmailPreview(data.result);
-              } catch (e) {}
+                if (data.result?.subject) {
+                  setEmailPreview(data.result);
+                  setEditedSubject(data.result.subject);
+                  setEditedBody(data.result.body);
+                }
+              } catch (e) {
+                console.error('JSON parse error:', e, 'for:', jsonStr);
+              }
             }
           }
         }
       }
     } catch (error) {
+      console.error('Fetch error:', error);
       setLogs(prev => [...prev, { log: `Error: ${error.message}`, type: 'error' }]);
     }
     setIsRunning(false);
   }, [companyName, icp, recipient]);
+
+  const handleEdit = useCallback(() => {
+    setIsEditing(true);
+  }, []);
+
+  const handleSendEmail = useCallback(async () => {
+    if (!emailPreview || !editedSubject.trim() || !editedBody.trim()) return;
+    
+    setIsSending(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject: editedSubject,
+          body: editedBody,
+          recipient: emailPreview.recipient,
+          sender: emailPreview.sender
+        }),
+      });
+
+      const data = await res.json();
+      if (data.status === 'live_sent' || data.status === 'mock_sent') {
+        setLogs(prev => [...prev, { log: `Email sent successfully to ${data.recipient}`, type: 'success' }]);
+        setEmailSent(true);
+        setIsEditing(false);
+      } else {
+        setLogs(prev => [...prev, { log: `Error sending email: ${data.message || 'Unknown error'}`, type: 'error' }]);
+      }
+    } catch (error) {
+      setLogs(prev => [...prev, { log: `Error: ${error.message}`, type: 'error' }]);
+    }
+    setIsSending(false);
+  }, [emailPreview, editedSubject, editedBody]);
 
   return (
     <div className="dark-orbs" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', padding: '24px', zIndex: 1, overflowY: 'auto' }}>
@@ -235,18 +314,157 @@ function App() {
             <div className="section-header" style={{ marginBottom: '16px' }}>
               <div className="section-icon"><IconMail /></div>
               <div className="section-title">Generated Email</div>
-              {emailPreview && <span style={{ marginLeft: 'auto', color: '#10b981', fontWeight: 900, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(16,185,129,0.1)', padding: '2px 8px', borderRadius: '12px', border: '1px solid rgba(16,185,129,0.3)' }}><IconCheck/> SENT</span>}
+              {emailSent && <span style={{ marginLeft: 'auto', color: '#10b981', fontWeight: 900, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(16,185,129,0.1)', padding: '2px 8px', borderRadius: '12px', border: '1px solid rgba(16,185,129,0.3)' }}><IconCheck/> SENT</span>}
             </div>
             
             {emailPreview ? (
-              <div className="email-card animate-fade-in-up">
-                <div className="email-header">
-                  <div style={{ fontWeight: 800, fontSize: '15px', color: 'var(--text-primary)', marginBottom: '4px' }}>{emailPreview.subject}</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>To: {emailPreview.recipient}</div>
-                </div>
-                <div className="email-body">
-                  {emailPreview.body}
-                </div>
+              <div className="email-card animate-fade-in-up" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                {isEditing ? (
+                  <>
+                    <div style={{ marginBottom: '12px' }}>
+                      <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>Subject</label>
+                      <input
+                        type="text"
+                        value={editedSubject}
+                        onChange={e => setEditedSubject(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          background: 'rgba(2, 6, 23, 0.6)',
+                          border: '1px solid rgba(139, 92, 246, 0.3)',
+                          borderRadius: '8px',
+                          color: 'var(--text-primary)',
+                          fontSize: '14px',
+                          fontFamily: 'inherit',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, marginBottom: '12px' }}>
+                      <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>Body</label>
+                      <textarea
+                        value={editedBody}
+                        onChange={e => setEditedBody(e.target.value)}
+                        style={{
+                          flex: 1,
+                          padding: '12px',
+                          background: 'rgba(2, 6, 23, 0.6)',
+                          border: '1px solid rgba(139, 92, 246, 0.3)',
+                          borderRadius: '8px',
+                          color: 'var(--text-primary)',
+                          fontSize: '13px',
+                          fontFamily: 'inherit',
+                          resize: 'none',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        onClick={() => setIsEditing(false)}
+                        disabled={isSending}
+                        style={{
+                          flex: 1,
+                          padding: '8px 12px',
+                          background: 'rgba(139, 92, 246, 0.1)',
+                          border: '1px solid rgba(139, 92, 246, 0.3)',
+                          borderRadius: '8px',
+                          color: '#c4b5fd',
+                          fontSize: '13px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleSendEmail}
+                        disabled={isSending}
+                        style={{
+                          flex: 1,
+                          padding: '8px 12px',
+                          background: 'linear-gradient(135deg, var(--brand-primary), var(--brand-secondary))',
+                          border: 'none',
+                          borderRadius: '8px',
+                          color: 'white',
+                          fontSize: '13px',
+                          fontWeight: 700,
+                          cursor: isSending ? 'not-allowed' : 'pointer',
+                          opacity: isSending ? 0.5 : 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '4px',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        <IconSend />
+                        {isSending ? 'Sending...' : 'Send Email'}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="email-header">
+                      <div style={{ fontWeight: 800, fontSize: '15px', color: 'var(--text-primary)', marginBottom: '4px' }}>{editedSubject}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>To: {emailPreview.recipient}</div>
+                    </div>
+                    <div className="email-body" style={{ flex: 1, marginBottom: '12px' }}>
+                      {editedBody}
+                    </div>
+                    {!emailSent && (
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          onClick={handleEdit}
+                          style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            background: 'linear-gradient(135deg, var(--brand-primary), var(--brand-secondary))',
+                            border: 'none',
+                            borderRadius: '8px',
+                            color: 'white',
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '4px',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          <IconEdit />
+                          Edit
+                        </button>
+                        <button
+                          onClick={handleSendEmail}
+                          disabled={isSending}
+                          style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            background: 'rgba(16, 185, 129, 0.1)',
+                            border: '1px solid rgba(16, 185, 129, 0.3)',
+                            borderRadius: '8px',
+                            color: '#10b981',
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            cursor: isSending ? 'not-allowed' : 'pointer',
+                            opacity: isSending ? 0.5 : 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '4px',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          <IconSend />
+                          {isSending ? 'Sending...' : 'Send'}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             ) : (
               <div style={{ flex: 1, background: 'rgba(2, 6, 23, 0.4)', borderRadius: '20px', border: '1px dashed rgba(255, 255, 255, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>

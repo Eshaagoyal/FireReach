@@ -3,7 +3,7 @@ import json
 from groq import Groq
 from tools.harvester import tool_signal_harvester
 from tools.analyst import tool_research_analyst
-from tools.sender import tool_outreach_automated_sender
+from tools.sender import tool_draft_email
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
@@ -50,8 +50,8 @@ tools_schema = [
     {
         "type": "function",
         "function": {
-            "name": "tool_outreach_automated_sender",
-            "description": "Drafts and sends an email via Gmail SMTP.",
+            "name": "tool_draft_email",
+            "description": "Drafts a hyper-personalized email for review before sending.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -77,6 +77,7 @@ tools_schema = [
 async def run_outreach_flow(company_name: str, icp: str, recipient: str):
     """
     Generator function that yields SSE formatted string log events.
+    Generates an email for the user to review and edit before sending.
     """
     context_signals = None
     yield f"data: {json.dumps({'log': f'Starting outreach for {company_name}...'})}\n\n"
@@ -92,22 +93,22 @@ async def run_outreach_flow(company_name: str, icp: str, recipient: str):
         yield f"data: {json.dumps({'log': 'Step 2: Analyzing signals with Groq...'})}\n\n"
         brief = tool_research_analyst(signals, icp)
         
-        yield f"data: {json.dumps({'log': 'Step 3: Sending email via Gmail Mock...'})}\n\n"
-        result = tool_outreach_automated_sender(brief, company_name, recipient)
+        yield f"data: {json.dumps({'log': 'Step 3: Drafting email for review...'})}\n\n"
+        result = tool_draft_email(brief, company_name, recipient)
         
-        yield f"data: {json.dumps({'log': 'Outreach flow completed (Mock Mode).', 'result': result})}\n\n"
+        yield f"data: {json.dumps({'log': 'Email drafted successfully! Ready for editing and sending.', 'result': result, 'type': 'success'})}\n\n"
         return
 
     messages = [
-        {"role": "system", "content": "You are the FireReach orchestrator. You MUST execute the following pipeline strictly ONE STEP AT A TIME: First, call tool_signal_harvester and WAIT for the result. Second, call tool_research_analyst and WAIT for the result. Third, call tool_outreach_automated_sender. DO NOT call multiple tools at once. Call exactly one tool per turn. Stop once the email is sent."},
-        {"role": "user", "content": f"Begin the outreach sequence for company: {company_name}. The ICP is: {icp}. The target recipient email is: {recipient}."}
+        {"role": "system", "content": "You are the FireReach orchestrator agent. Follow these rules STRICTLY:\n1. You must execute tools in this sequence: FIRST `tool_signal_harvester`, THEN `tool_research_analyst`, THEN `tool_draft_email`.\n2. Execute EXACTLY ONE tool call per turn. DO NOT call multiple tools in one response.\n3. NEVER output conversational text or explanations. Your response must ONLY be the tool call."},
+        {"role": "user", "content": f"Begin the outreach sequence for company: '{company_name}'. The ICP is: '{icp}'. The target recipient email is: '{recipient}'."}
     ]
 
     try:
         for i in range(5):
-            yield f"data: {json.dumps({'log': 'Agent reasoning (Groq Llama 3.1 8B)...'})}\n\n"
+            yield f"data: {json.dumps({'log': 'Agent reasoning (Groq Llama 3.3 70B)...'})}\n\n"
             response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="llama-3.3-70b-versatile",
                 messages=messages,
                 tools=tools_schema,
                 tool_choice="auto",
@@ -150,9 +151,10 @@ async def run_outreach_flow(company_name: str, icp: str, recipient: str):
                     
                     yield f"data: {json.dumps({'log': 'Analyzing signals with Groq...'})}\n\n"
                     function_response = tool_research_analyst(signals=context_signals, icp=icp_val)
-                elif function_name == "tool_outreach_automated_sender":
-                    function_response = tool_outreach_automated_sender(**arguments)
-                    yield f"data: {json.dumps({'log': 'Final step complete.', 'result': function_response})}\n\n"
+                    
+                elif function_name == "tool_draft_email":
+                    function_response = tool_draft_email(**arguments)
+                    yield f"data: {json.dumps({'log': 'Email drafted successfully! Ready for editing and sending.', 'result': function_response, 'type': 'success'})}\n\n"
                 else:
                     function_response = {"error": f"Unknown tool: {function_name}"}
                 

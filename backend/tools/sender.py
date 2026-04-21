@@ -10,15 +10,26 @@ load_dotenv()
 GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_PASS = os.environ.get("GMAIL_PASS")
 
-def tool_outreach_automated_sender(brief: str, company_name: str, recipient: str, sender: str = None) -> dict:
+def tool_draft_email(brief: str, company_name: str, recipient: str, sender: str = None) -> dict:
     """
-    Drafts and sends a hyper-personalized email via Gmail SMTP.
+    Drafts a hyper-personalized email without sending it.
+    Returns the email content for review and editing.
     """
     if not sender:
         sender = GMAIL_USER or "yourgmail@gmail.com"  # fallback
     
     subject = f"Connecting regarding {company_name}"
     body = f"Hi there,\n\n{brief}\n\nBest,\nAutomated Agent"
+
+    return {"recipient": recipient, "subject": subject, "body": body, "sender": sender}
+
+def tool_send_email(subject: str, body: str, recipient: str, sender: str = None) -> dict:
+    """
+    Sends an email via Gmail SMTP.
+    Can be used to send either draft or edited emails.
+    """
+    if not sender:
+        sender = GMAIL_USER or "yourgmail@gmail.com"  # fallback
 
     if not GMAIL_USER or not GMAIL_PASS or GMAIL_USER == "yourgmail@gmail.com":
         print("GMAIL_USER or GMAIL_PASS not found or default! Mocking email send.")
@@ -41,3 +52,11 @@ def tool_outreach_automated_sender(brief: str, company_name: str, recipient: str
         return {"status": "live_sent", "recipient": recipient, "subject": subject, "body": body}
     except Exception as e:
         return {"status": "error", "message": f"SMTP Error: {str(e)}", "recipient": recipient, "subject": subject, "body": body}
+
+def tool_outreach_automated_sender(brief: str, company_name: str, recipient: str, sender: str = None) -> dict:
+    """
+    Drafts and sends a hyper-personalized email via Gmail SMTP.
+    (Kept for backward compatibility - calls draft then send)
+    """
+    draft = tool_draft_email(brief, company_name, recipient, sender)
+    return tool_send_email(draft["subject"], draft["body"], draft["recipient"], draft["sender"])

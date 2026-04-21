@@ -19,12 +19,13 @@ Output only the two paragraphs.
 """
     try:
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=500,
             temperature=0.7
         )
-        return response.choices[0].message.content
+        content = response.choices[0].message.content
+        return content.replace("'", "’").replace('"', "”")
     except Exception as e:
         err_str = str(e).replace('"', "'").replace('\\', '')
         return f"Error contacting Groq Analyst: {err_str}"
