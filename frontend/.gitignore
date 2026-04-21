@@ -30,3 +30,7 @@ __pycache__/
 backend/.env
 node_modules/
 dist/
+
+backend/.env
+__pycache__/
+*.pyc
